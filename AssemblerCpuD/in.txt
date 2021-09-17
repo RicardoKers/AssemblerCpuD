@@ -1,0 +1,16 @@
+; programa de teste
+
+reset:
+	nop
+	ld a,200
+	nop
+	nop
+nãoSei
+word myword
+	jiz a,reset
+	nop
+byte mybyte
+	ld a,0
+	ld ar,mybyte
+	jiz a,reset
+	jmp reset
