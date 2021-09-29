@@ -1,0 +1,18 @@
+; programa de teste
+byte dado
+const valor 0xBA
+const display1 0
+const display2 1
+const leds 2
+
+reset:
+	in a, 0 			; lê a entrada e armazena em a
+	xor a, 0x0F			; Inverte os 4 bits mais baixos
+	ld ar, dado 		; armazena o endereço do dado em ar
+	wr ar, a 			; grava o contúdo de a na ram
+	add a, 4 			; soma 4 em a
+	out display2, a 	; envia o conteudo de a para o display2 de saída
+	rd a, dado 			; lê o dado da ram para a
+	out display1, a 	; envia o conteudo de a para o endereço 0 de saída
+	out leds, a			; envia o valor de a para a saída 2
+	jmp reset 			; salta para o início do programa

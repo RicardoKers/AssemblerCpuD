@@ -1,16 +1,32 @@
 ; programa de teste
 
+byte x
+byte y
+byte z
+
 reset:
 	nop
-	ld a,200
-	nop
-	nop
-nãoSei
-word myword
-	jiz a,reset
-	nop
-byte mybyte
-	ld a,0
-	ld ar,mybyte
-	jiz a,reset
-	jmp reset
+	ld b, 12
+	ld b, ar
+	ld b, ar+
+	ld ar, 0X105
+	mov b, a
+	mov a, b
+	WR AR,A
+	WR AR,B
+	WR AR+,A
+	WR AR+,B
+const teste 12
+	
+	WR x,a
+	WR z,B
+	WR 12,A
+	WR teste,B
+	RD A,AR
+	RD B,AR
+	RD A,AR+
+	RD B,AR+
+	RD A,z
+	RD B,125
+
+

@@ -2,18 +2,52 @@
 #include <stdlib.h>
 #include <string.h>
 
+/*
+token types>
+comments> ; this is a comment
+
+instructions>
+    1 byte instruction: mov a, b
+    2 byte instruction: ld a, 0x12
+
+label> reset:
+
+registers> a
+
+commands> byte
+
+--------------
+types>
+type=0 not valid
+type=1 label
+type=2 1 byte instruction
+type=3 register
+type=4 number
+type=5 2 bytes instructions
+type=6 command byte
+type=7 data addr
+type=8 command word
+type=9 command const
+type=10 const name
+
+*/
+
+
+
 struct tokenList {
     char token[50];
     int type;
     int addr;
+    int lineNumber;
     struct tokenList* next;
 };
 
-void attach(struct tokenList** head, char *tk, int type)
+void attach(struct tokenList** head, char *tk, int type, int line)
 {
     struct tokenList* newNode = (struct tokenList*) malloc(sizeof(struct tokenList));
     struct tokenList *last = *head;
     newNode->type=type;
+    newNode->lineNumber=line;
     strcpy(newNode->token,tk);
     newNode->addr=0;
     newNode->next = NULL;
@@ -36,16 +70,18 @@ void print(struct tokenList *list)
     {
         printf("%d ",list->type);
         printf("%s ",list->token);
-        printf("%d\n",list->addr);
+        printf("%d",list->addr);
+        printf(" (line = %d)\n",list->lineNumber);
         list=list->next;
     }
 }
 
-int stractTokens(struct tokenList** tk, FILE* inPt)
+int extractTokens(struct tokenList** tk, FILE* inPt)
 {
     char text[50];
     int ptText=0;
     int c=0;
+    int lineCounter=1;
     while(!feof(inPt))
     {
         c=getc(inPt);
@@ -57,6 +93,7 @@ int stractTokens(struct tokenList** tk, FILE* inPt)
             {
                 c=getc(inPt);
             }
+            if(c=='\n') lineCounter++;
             ptText=0;
             c=0;
         }
@@ -64,10 +101,16 @@ int stractTokens(struct tokenList** tk, FILE* inPt)
         {
             if(c==':') ptText++;
             text[ptText]=0;
-            attach(tk, text, 0);
+            attach(tk, text, 0, lineCounter);
+            if(c=='\n') lineCounter++;
             ptText=0;
             c=0;
         }
+        else
+        {
+            if(c=='\n') lineCounter++;
+        }
+
         if(c>' ') ptText++;
     }
     return(0);
@@ -75,14 +118,13 @@ int stractTokens(struct tokenList** tk, FILE* inPt)
 
 int analizeTokens(struct tokenList** list)
 {
-    char insts[10][10]={{"mov"},{"wr"},{"rd"},{"nop"},{"xx"},{"xx"},{"xx"},{"xx"},{"xx"},{"xx"}}; // 1 byte instructions
-    int numIsnt=10;
-    char dblInsts[10][10]={{"ld"},{"jmp"},{"jiz"},{"jin"},{"xx"},{"xx"},{"xx"},{"xx"},{"xx"},{"xx"}}; // 2 bytes instructions
-    int numDblIsnt=10;
-    char regs[10][5]={{"a"},{"b"},{"ar"},{"pc"},{"xx"}};
-    int numRegs=5;
-    char commands[10][5]={{"byte"},{"word"},{"xx"},{"xx"},{"xx"}};
-    int numCommands=5;
+    char insts[30][10]={{"nop"},{"ld"},{"mov"},{"wr"},{"rd"},{"in"},{"out"},{"inc"},{"jmp"},{"jiz"},{"jie"},{"jig"},{"jis"},{"jin"},{"jic"},{"set"},{"clr"},{"not"},{"or"},{"and"},{"xor"},{"add"},{"sub"},{"dec"},{"lsl"},{"slr"},{"swap"},{"xxxx"},{"xxxx"},{"xxxx"}}; //instructions
+    int numIsnt=30;
+    char regs[6][10]={{"a"},{"b"},{"ar"},{"ar+"},{"pc"},{"c"}};
+    int numRegs=6;
+    char commands[3][10]={{"byte"},{"word"},{"const"}};
+    int numCommands=3;
+    int ret=0;
     struct tokenList* temp = *list;
     while(temp!=NULL)
     {
@@ -110,13 +152,7 @@ int analizeTokens(struct tokenList** list)
             {
                 temp->type=4; // number
             }
-            for(int i=0; i<numDblIsnt; i++)
-            {
-                if(strcmp(dblInsts[i],temp->token)==0)
-                {
-                    temp->type=5; // 2 bytes instruction
-                }
-            }
+            // type 5 reserved for 2 bytes instructions
             for(int i=0; i<numCommands; i++)
             {
                 if(strcmp(commands[i],temp->token)==0)
@@ -133,32 +169,23 @@ int analizeTokens(struct tokenList** list)
                         temp=temp->next;
                         temp->type=7; // data addr
                     }
+                    if(strcmp("const",temp->token)==0)
+                    {
+                        temp->type=9; // command word
+                    }
                 }
             }
         }
         temp=temp->next;
     }
-    return(0);
+    return(ret);
 }
 
-int stractLabels(struct tokenList* list)
+int extractDataAddr(struct tokenList* list)
 {
-    int addr=0; // prom
     int ramAddr=0; // data
     while(list!=NULL)
     {
-        if(list->type==2)
-        {
-            addr++; // instruction
-        }
-        if(list->type==5)
-        {
-            addr+=2; // 2 bytes instruction
-        }
-        if(list->type==1)
-        {
-            list->addr=addr; // label
-        }
         if(list->type==6) // byte
         {
             list=list->next;
@@ -176,252 +203,1322 @@ int stractLabels(struct tokenList* list)
     return(0);
 }
 
-int getNumber(char* txt)
+int extractNumber(char *txt)
 {
-    int ret;
-    if(txt[1]=='x'||txt[2]=='x') //hexadecimal
+    int num;
+    if(txt[1]=='x'||txt[1]=='X') // hex
     {
-        sscanf(txt,"%x",&ret);
+        sscanf(txt, "%x", &num);
     }
     else
     {
-        ret=atoi(txt);
+        sscanf(txt, "%d", &num);
+    }
+    return(num);
+}
+
+
+int extractConstants(struct tokenList* list)
+{
+    int ret=0;
+    while(list!=NULL)
+    {
+        if(list->type==9) // constant
+        {
+            list=list->next;
+            if(list->type==0)
+            {
+                list->type=10; // constant name
+                if(list->next->type==4)
+                {
+                    list->addr=extractNumber(list->next->token);
+                }
+                else
+                {
+                    printf("[ERROR Line %d] Invalid constant value (%s)\n",list->lineNumber,list->next->token);
+                    ret=1;
+                }
+            }
+            else
+            {
+                printf("[ERROR Line %d] Invalid constant name (%s)\n",list->lineNumber,list->token);
+                ret=1;
+            }
+        }
+        list=list->next;
     }
     return(ret);
 }
 
-int compile(struct tokenList* list, FILE* arqOut)
+int setConstants(struct tokenList* list)
 {
+    struct tokenList* hlist = list;
+    struct tokenList* templist = list;
+    while(list!=NULL)
+    {
+        if(list->type!=10) // not a constant declaration
+        {
+            templist = hlist;
+            while(templist!=NULL)
+            {
+                if(templist->type==10)
+                {
+                    if(strcmp(templist->token,list->token)==0)
+                    {
+                        sprintf(list->token,"%d",templist->addr);
+                        list->type=4;
+                    }
+                }
+                templist=templist->next;
+            }
+        }
+        list=list->next;
+    }
+    return(0);
+}
+
+int setDataAddr(struct tokenList* list)
+{
+    struct tokenList* temp = list;
+    struct tokenList* tempStart = list;
+
+    while(list!=NULL)
+    {
+        if(list->type==0) // no type definid
+        {
+            temp = tempStart;
+            while(temp!=NULL) //find token in temp
+            {
+                if(temp->type==7)
+                {
+                    if(strcmp(list->token,temp->token)==0)
+                    {
+                        list->type=7;
+                        list->addr=temp->addr;
+                    }
+                }
+                temp=temp->next;
+            }
+        }
+        list=list->next;
+    }
+    return(0);
+}
+
+int extract2BytsInstruction(struct tokenList* list) // type = 5
+{
+    struct tokenList* temp;
+    while(list!=NULL)
+    {
+        if(list->type==2) // instruction
+        {
+            // ld
+            if(strcmp("ld",list->token)==0)
+            {
+                temp=list->next;
+                if(temp->next->type==4)
+                {
+                    // ld xx,val
+                    list->type=5;
+                }
+            }
+            // wr
+            if(strcmp("wr",list->token)==0)
+            {
+                if(list->next->type==4||list->next->type==7)
+                {
+                    // wr addr,reg
+                    list->type=5;
+                }
+            }
+            // rd
+            if(strcmp("rd",list->token)==0)
+            {
+                temp=list->next;
+                if(temp->next->type==4||temp->next->type==7)
+                {
+                    // rd xx,addr
+                    list->type=5;
+                }
+            }
+            // in
+            if(strcmp("in",list->token)==0)
+            {
+                temp=list->next;
+                if(temp->next->type==4||temp->next->type==7)
+                {
+                    // in xx,addr
+                    list->type=5;
+                }
+            }
+            // out
+            if(strcmp("out",list->token)==0)
+            {
+                temp=list->next;
+                if(temp->next->type==4)
+                {
+                    // out xx,val
+                    list->type=5;
+                }
+                if(list->next->type==4||list->next->type==7)
+                {
+                    // out addr,xx
+                    list->type=5;
+                }
+            }
+            // jmp
+            if(strcmp("jmp",list->token)==0)
+            {
+                list->type=5;
+            }
+            // jiz
+            if(strcmp("jiz",list->token)==0)
+            {
+                list->type=5;
+            }
+            // jie
+            if(strcmp("jie",list->token)==0)
+            {
+                list->type=5;
+            }
+            // jig
+            if(strcmp("jig",list->token)==0)
+            {
+                list->type=5;
+            }
+            // jis
+            if(strcmp("jis",list->token)==0)
+            {
+                list->type=5;
+            }
+            // jin
+            if(strcmp("jin",list->token)==0)
+            {
+                list->type=5;
+            }
+            // jic
+            if(strcmp("jic",list->token)==0)
+            {
+                list->type=5;
+            }
+        }
+        list=list->next;
+    }
+    return(0);
+}
+
+int extractLabels(struct tokenList* list)
+{
+    int addr=0; // prom
+    while(list!=NULL)
+    {
+        if(list->type==2)
+        {
+            addr++; // instruction
+        }
+        if(list->type==5)
+        {
+            addr+=2; // 2 bytes instruction
+        }
+        if(list->type==1)
+        {
+            list->addr=addr; // label
+        }
+        list=list->next;
+    }
+    return(0);
+}
+
+int setLabels(struct tokenList* list)
+{
+    struct tokenList* temp = list;
+    struct tokenList* tempStart = list;
+
+    char tempStr[50];
+
+    while(list!=NULL)
+    {
+        if(list->type==0) // no type definid
+        {
+            temp = tempStart;
+            while(temp!=NULL) //find token in temp
+            {
+                if(temp->type==1)
+                {
+                    strcpy(tempStr,temp->token);
+                    tempStr[strlen(tempStr)-1]=0; // remove ':'
+                    if(strcmp(list->token,tempStr)==0)
+                    {
+                        list->type=1;
+                        list->addr=temp->addr;
+                    }
+                }
+                temp=temp->next;
+            }
+        }
+        list=list->next;
+    }
+    return(0);
+}
+
+int errorCheck(struct tokenList* list)
+{
+    int ret=0; // o=no error
+    while(list!=NULL)
+    {
+        if(list->type==0)
+        {
+            printf("[ERROR Line %d] Command not recognized (%s)\n",list->lineNumber,list->token);
+            ret=1;
+        }
+        list=list->next;
+    }
+    return(ret);
+}
+
+
+int compile(struct tokenList* list, FILE* arqOut) // Hneemaan Digital format
+{
+    int ret=0; // return value, 0=no error
     int addr=0; // PROM
-    int ramAddr=0; // data
-    struct tokenList* tmp = list;
-    struct tokenList* listH = list;
+    int tmpInt;
+    int tmpAddr;
+    int invalidInstruction;
+    int instructionFiniched;
     fprintf(arqOut,"v2.0 raw\n");
     while(list!=NULL)
     {
         if(list->type==2||list->type==5) //instruction
         {
+            //printf("inst -> %s, %s (l%d)\n",list->token,list->next->token,list->lineNumber);
             addr++;
-            // nop
-            if(strcmp(list->token,"nop")==0)    // nop
+            invalidInstruction=1;
+            instructionFiniched=0;
+            // NOP
+            if(strcmp(list->token,"nop")==0)
             {
-                fprintf(arqOut,"0\n");
+                fprintf(arqOut,"0\n"); // nop
+                invalidInstruction=0;
+                instructionFiniched=1;
             }
-            // ld
-            if(strcmp(list->token,"ld")==0)    // ld
+            //LD
+            if(strcmp(list->token,"ld")==0 && instructionFiniched==0)
             {
-                addr++;
                 list=list->next;
-                if(strcmp(list->token,"a")==0)    // ld a,val
+                // ld a,
+                if(strcmp(list->token,"a")==0 && instructionFiniched==0)
                 {
                     list=list->next;
-                    fprintf(arqOut,"1\n");
-                    fprintf(arqOut,"%X\n",getNumber(list->token));
-                }
-                if(strcmp(list->token,"b")==0)    // ld b,val
-                {
-                    list=list->next;
-                    fprintf(arqOut,"2\n");
-                    fprintf(arqOut,"%X\n",getNumber(list->token));
-                }
-                if(strcmp(list->token,"ar")==0)    // ld ar,val
-                {
-                    list=list->next;
-                    fprintf(arqOut,"3\n");
-                    if(list->token[0]>='0'&&list->token[0]<='0') // number
+                    // ld a, val
+                    if(list->type==4 && instructionFiniched==0)
                     {
-                        fprintf(arqOut,"%X\n",getNumber(list->token));
+                        fprintf(arqOut,"1\n"); // ld a, val
+                        fprintf(arqOut,"%X\n",extractNumber(list->token)); // val
+                        addr++;
+                        invalidInstruction=0;
+                        instructionFiniched=1;
                     }
-                    else // byte or word addr
+                    // ld a, ar
+                    if(strcmp(list->token,"ar")==0 && instructionFiniched==0)
                     {
-                        tmp=listH;
-                        while(tmp!=NULL) // find text for addr
+                        fprintf(arqOut,"4\n"); // ld a, ar
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                    // ld a, ar+
+                    if(strcmp(list->token,"ar+")==0)
+                    {
+                        fprintf(arqOut,"6\n"); // ld a, ar+
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                }
+                // ld b,
+                if(strcmp(list->token,"b")==0 && instructionFiniched==0)
+                {
+                    list=list->next;
+                    // ld b, val
+                    if(list->type==4)
+                    {
+                        fprintf(arqOut,"2\n"); // ld b, val
+                        fprintf(arqOut,"%X\n",extractNumber(list->token)); // val
+                        addr++;
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                    // ld b, ar
+                    if(strcmp(list->token,"ar")==0)
+                    {
+                        fprintf(arqOut,"5\n"); // ld b, ar
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                    // ld b, ar+
+                    if(strcmp(list->token,"ar+")==0)
+                    {
+                        fprintf(arqOut,"7\n"); // ld b, ar+
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                }
+                // ld ar,
+                if(strcmp(list->token,"ar")==0 && instructionFiniched==0)
+                {
+                    list=list->next;
+                    if((list->type==4||list->type==7) && instructionFiniched==0)
+                    {
+                        // ld ar, addr
+                        // bits 8 and 9 of addr inserted into instruction
+                        if(list->type==4) // is a number
                         {
-                            if(tmp->type==7)
+                            tmpAddr=extractNumber(list->token);
+                        }
+                        else // type 7
+                        {
+                            tmpAddr=list->addr;
+                        }
+                        tmpInt=tmpAddr;
+                        tmpInt=tmpInt&0x300; // extract bits 8 and 9
+                        tmpInt=tmpInt>>2; // move bits 8 and 9 to 6 and 7 position
+                        tmpInt=tmpInt|3; // insert opcode 3
+                        fprintf(arqOut,"%X\n",tmpInt);
+                        tmpInt=tmpAddr;
+                        tmpInt=tmpInt&0xFF; // extract bits 0 to 7
+                        fprintf(arqOut,"%X\n",tmpInt); // val
+                        addr++;
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                }
+            }
+            //MOV
+            if(strcmp(list->token,"mov")==0 && instructionFiniched==0)
+            {
+                list=list->next;
+                // mov b,
+                if(strcmp(list->token,"b")==0 && instructionFiniched==0)
+                {
+                    list=list->next;
+                    // mov b, a
+                    if(strcmp(list->token,"a")==0)
+                    {
+                        fprintf(arqOut,"8\n"); // mov b, a
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                }
+                // mov a,
+                if(strcmp(list->token,"a")==0 && instructionFiniched==0)
+                {
+                    list=list->next;
+                    // mov a, b
+                    if(strcmp(list->token,"b")==0)
+                    {
+                        fprintf(arqOut,"9\n"); // mov a, b
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                }
+            }
+            //WR
+            if(strcmp(list->token,"wr")==0 && instructionFiniched==0)
+            {
+                list=list->next;
+                // wr ar,
+                if(strcmp(list->token,"ar")==0 && instructionFiniched==0)
+                {
+                    list=list->next;
+                    // wr ar, a
+                    if(strcmp(list->token,"a")==0)
+                    {
+                        fprintf(arqOut,"A\n"); // wr ar, a
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                    // wr ar, b
+                    if(strcmp(list->token,"b")==0)
+                    {
+                        fprintf(arqOut,"B\n"); // wr ar, b
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                }
+                // wr ar+,
+                if(strcmp(list->token,"ar+")==0 && instructionFiniched==0)
+                {
+                    list=list->next;
+                    // wr ar+, a
+                    if(strcmp(list->token,"a")==0)
+                    {
+                        fprintf(arqOut,"C\n"); // wr ar+, a
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                    // wr ar+, b
+                    if(strcmp(list->token,"b")==0)
+                    {
+                        fprintf(arqOut,"D\n"); // wr ar+, b
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                }
+                // wr addr,
+                if((list->type==4||list->type==7) && instructionFiniched==0)
+                {
+                    if(list->type==4) // is a number
+                    {
+                        tmpAddr=extractNumber(list->token);
+                    }
+                    else // type 7
+                    {
+                        tmpAddr=list->addr;
+                    }
+                    list=list->next;
+                    // wr addr, a
+                    if(strcmp(list->token,"a")==0 && instructionFiniched==0)
+                    {
+                        // wr addr, a
+                        tmpInt=tmpAddr&0x300; // extract bits 8 and 9
+                        tmpInt=tmpInt>>2; // move bits 8 and 9 to 6 and 7 position
+                        tmpInt=tmpInt|0xE; // insert opcode 0xE
+                        fprintf(arqOut,"%X\n",tmpInt);
+                        tmpInt=tmpAddr&0xFF; // extract bits 0 to 7
+                        fprintf(arqOut,"%X\n",tmpInt); // addr
+                        addr++;
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                    // wr addr, b
+                    if(strcmp(list->token,"b")==0 && instructionFiniched==0)
+                    {
+                        // wr addr, b
+                        tmpInt=tmpAddr&0x300; // extract bits 8 and 9
+                        tmpInt=tmpInt>>2; // move bits 8 and 9 to 6 and 7 position
+                        tmpInt=tmpInt|0xF; // insert opcode 0xF
+                        fprintf(arqOut,"%X\n",tmpInt);
+                        tmpInt=tmpAddr&0xFF; // extract bits 0 to 7
+                        fprintf(arqOut,"%X\n",tmpInt); // addr
+                        addr++;
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                }
+            }
+            //RD
+            if(strcmp(list->token,"rd")==0 && instructionFiniched==0)
+            {
+                list=list->next;
+                // rd a,
+                if(strcmp(list->token,"a")==0 && instructionFiniched==0)
+                {
+                    list=list->next;
+                    // rd a, ar
+                    if(strcmp(list->token,"ar")==0)
+                    {
+                        fprintf(arqOut,"10\n"); // rd a, ar
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                    // rd a, ar+
+                    if(strcmp(list->token,"ar+")==0 && instructionFiniched==0)
+                    {
+                        fprintf(arqOut,"12\n"); // rd a, ar+
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                    // rd a, addr
+                    if((list->type==4||list->type==7) && instructionFiniched==0)
+                    {
+                        if(list->type==4) // is a number
+                        {
+                            tmpAddr=extractNumber(list->token);
+                        }
+                        else // type 7
+                        {
+                            tmpAddr=list->addr;
+                        }
+                        tmpInt=tmpAddr&0x300; // extract bits 8 and 9
+                        tmpInt=tmpInt>>2; // move bits 8 and 9 to 6 and 7 position
+                        tmpInt=tmpInt|0x14; // insert opcode 0x14
+                        fprintf(arqOut,"%X\n",tmpInt);
+                        tmpInt=tmpAddr&0xFF; // extract bits 0 to 7
+                        fprintf(arqOut,"%X\n",tmpInt); // addr
+                        addr++;
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                }
+                // rd b,
+                if(strcmp(list->token,"b")==0 && instructionFiniched==0)
+                {
+                    list=list->next;
+                    // rd b, ar
+                    if(strcmp(list->token,"ar")==0 && instructionFiniched==0)
+                    {
+                        fprintf(arqOut,"11\n"); // rd b, ar
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                    // rd b, ar+
+                    if(strcmp(list->token,"ar+")==0 && instructionFiniched==0)
+                    {
+                        fprintf(arqOut,"13\n"); // rd b, ar+
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                    // rd b, addr
+                    if((list->type==4||list->type==7) && instructionFiniched==0)
+                    {
+                        if(list->type==4) // is a number
+                        {
+                            tmpAddr=extractNumber(list->token);
+                        }
+                        else // type 7
+                        {
+                            tmpAddr=list->addr;
+                        }
+                        tmpInt=tmpAddr&0x300; // extract bits 8 and 9
+                        tmpInt=tmpInt>>2; // move bits 8 and 9 to 6 and 7 position
+                        tmpInt=tmpInt|0x15; // insert opcode 0x15
+                        fprintf(arqOut,"%X\n",tmpInt);
+                        tmpInt=tmpAddr&0xFF; // extract bits 0 to 7
+                        fprintf(arqOut,"%X\n",tmpInt); // addr
+                        addr++;
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                }
+            }
+            //IN
+            if(strcmp(list->token,"in")==0 && instructionFiniched==0)
+            {
+                list=list->next;
+                // in a,
+                if(strcmp(list->token,"a")==0 && instructionFiniched==0)
+                {
+                    list=list->next;
+                    // in a, ar
+                    if(strcmp(list->token,"ar")==0 && instructionFiniched==0)
+                    {
+                        fprintf(arqOut,"16\n"); // in a, ar
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                    // in a, ar+
+                    if(strcmp(list->token,"ar+")==0 && instructionFiniched==0)
+                    {
+                        fprintf(arqOut,"18\n"); // in a, ar+
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                    // in a, addr
+                    if((list->type==4||list->type==7) && instructionFiniched==0)
+                    {
+                        if(list->type==4) // is a number
+                        {
+                            tmpAddr=extractNumber(list->token);
+                        }
+                        else // type 7
+                        {
+                            tmpAddr=list->addr;
+                        }
+                        tmpInt=tmpAddr&0x300; // extract bits 8 and 9
+                        tmpInt=tmpInt>>2; // move bits 8 and 9 to 6 and 7 position
+                        tmpInt=tmpInt|0x1A; // insert opcode 0x1A
+                        fprintf(arqOut,"%X\n",tmpInt);
+                        tmpInt=tmpAddr&0xFF; // extract bits 0 to 7
+                        fprintf(arqOut,"%X\n",tmpInt); // addr
+                        addr++;
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                }
+                // in b,
+                if(strcmp(list->token,"b")==0 && instructionFiniched==0)
+                {
+                    list=list->next;
+                    // in b, ar
+                    if(strcmp(list->token,"ar")==0 && instructionFiniched==0)
+                    {
+                        fprintf(arqOut,"17\n"); // in b, ar
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                    // in b, ar+
+                    if(strcmp(list->token,"ar+")==0 && instructionFiniched==0)
+                    {
+                        fprintf(arqOut,"19\n"); // in b, ar+
+                        invalidInstruction=0;
+                    }
+                    // in b, addr
+                    if((list->type==4||list->type==7) && instructionFiniched==0)
+                    {
+                        if(list->type==4) // is a number
+                        {
+                            tmpAddr=extractNumber(list->token);
+                        }
+                        else // type 7
+                        {
+                            tmpAddr=list->addr;
+                        }
+                        tmpInt=tmpAddr&0x300; // extract bits 8 and 9
+                        tmpInt=tmpInt>>2; // move bits 8 and 9 to 6 and 7 position
+                        tmpInt=tmpInt|0x1B; // insert opcode 0x1B
+                        fprintf(arqOut,"%X\n",tmpInt);
+                        tmpInt=tmpAddr&0xFF; // extract bits 0 to 7
+                        fprintf(arqOut,"%X\n",tmpInt); // addr
+                        addr++;
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                }
+            }
+            //OUT
+            if(strcmp(list->token,"out")==0 && instructionFiniched==0)
+            {
+                list=list->next;
+                // out ar,
+                if(strcmp(list->token,"ar")==0 && instructionFiniched==0)
+                {
+                    list=list->next;
+                    // out ar, a
+                    if(strcmp(list->token,"a")==0 && instructionFiniched==0)
+                    {
+                        fprintf(arqOut,"1C\n"); // out ar, a
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                    // out ar, b
+                    if(strcmp(list->token,"b")==0 && instructionFiniched==0)
+                    {
+                        fprintf(arqOut,"1D\n"); // out ar, b
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                    // out ar, val
+                    if(list->type==4 && instructionFiniched==0)
+                    {
+                        fprintf(arqOut,"1E\n"); // out ar, val
+                        fprintf(arqOut,"%X\n",extractNumber(list->token)); // val
+                        addr++;
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                }
+                // out ar+,
+                if(strcmp(list->token,"ar+")==0 && instructionFiniched==0)
+                {
+                    list=list->next;
+                    // out ar+, a
+                    if(strcmp(list->token,"a")==0 && instructionFiniched==0)
+                    {
+                        fprintf(arqOut,"1F\n"); // out ar+, a
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                    // out ar+, b
+                    if(strcmp(list->token,"b")==0 && instructionFiniched==0)
+                    {
+                        fprintf(arqOut,"20\n"); // out ar+, b
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                    // out ar+, val
+                    if(list->type==4 && instructionFiniched==0)
+                    {
+                        fprintf(arqOut,"21\n"); // out ar+, val
+                        fprintf(arqOut,"%X\n",extractNumber(list->token)); // val
+                        addr++;
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                }
+                // out addr,
+                if((list->type==4||list->type==7) && instructionFiniched==0)
+                {
+                    if(list->type==4) // is a number
+                    {
+                        tmpAddr=extractNumber(list->token);
+                    }
+                    else // type 7
+                    {
+                        tmpAddr=list->addr;
+                    }
+                    list=list->next;
+                    // out addr, a
+                    if(strcmp(list->token,"a")==0 && instructionFiniched==0)
+                    {
+                        // out addr, a
+                        tmpInt=tmpAddr&0x300; // extract bits 8 and 9
+                        tmpInt=tmpInt>>2; // move bits 8 and 9 to 6 and 7 position
+                        tmpInt=tmpInt|0x22; // insert opcode 0x22
+                        fprintf(arqOut,"%X\n",tmpInt);
+                        tmpInt=tmpAddr&0xFF; // extract bits 0 to 7
+                        fprintf(arqOut,"%X\n",tmpInt); // addr
+                        addr++;
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                    // out addr, b
+                    if(strcmp(list->token,"b")==0 && instructionFiniched==0)
+                    {
+                        // out addr, b
+                        tmpInt=tmpAddr&0x300; // extract bits 8 and 9
+                        tmpInt=tmpInt>>2; // move bits 8 and 9 to 6 and 7 position
+                        tmpInt=tmpInt|0x23; // insert opcode 0x23
+                        fprintf(arqOut,"%X\n",tmpInt);
+                        tmpInt=tmpAddr&0xFF; // extract bits 0 to 7
+                        fprintf(arqOut,"%X\n",tmpInt); // addr
+                        addr++;
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                }
+            }
+            //INC
+            if(strcmp(list->token,"inc")==0 && instructionFiniched==0)
+            {
+                list=list->next;
+                // inc a
+                if(strcmp(list->token,"a")==0 && instructionFiniched==0)
+                {
+                    fprintf(arqOut,"24\n"); // inc a
+                    invalidInstruction=0;
+                    instructionFiniched=1;
+                }
+                // inc b
+                if(strcmp(list->token,"b")==0 && instructionFiniched==0)
+                {
+                    fprintf(arqOut,"25\n"); // inc b
+                    invalidInstruction=0;
+                    instructionFiniched=1;
+                }
+                // inc ar
+                if(strcmp(list->token,"ar")==0 && instructionFiniched==0)
+                {
+                    fprintf(arqOut,"26\n"); // inc ar
+                    invalidInstruction=0;
+                    instructionFiniched=1;
+                }
+            }
+            //JMP
+             if(strcmp(list->token,"jmp")==0 && instructionFiniched==0)
+            {
+                list=list->next;
+                // jmp addr
+                if((list->type==4||list->type==1) && instructionFiniched==0)
+                {
+                    if(list->type==4) // is a number
+                    {
+                        tmpAddr=extractNumber(list->token);
+                    }
+                    else // type 1
+                    {
+                        tmpAddr=list->addr;
+                    }
+                    tmpInt=tmpAddr&0x300; // extract bits 8 and 9
+                    tmpInt=tmpInt>>2; // move bits 8 and 9 to 6 and 7 position
+                    tmpInt=tmpInt|0x27; // insert opcode 0x27
+                    fprintf(arqOut,"%X\n",tmpInt);
+                    tmpInt=tmpAddr&0xFF; // extract bits 0 to 7
+                    fprintf(arqOut,"%X\n",tmpInt); // addr
+                    addr++;
+                    invalidInstruction=0;
+                    instructionFiniched=1;
+                }
+            }
+            //JIZ
+            if(strcmp(list->token,"jiz")==0 && instructionFiniched==0)
+            {
+                list=list->next;
+                // jiz a,
+                if(strcmp(list->token,"a")==0 && instructionFiniched==0)
+                {
+                    list=list->next;
+                    // jiz a, addr
+                    if((list->type==4||list->type==1) && instructionFiniched==0)
+                    {
+                        if(list->type==4) // is a number
+                        {
+                            tmpAddr=extractNumber(list->token);
+                        }
+                        else // type 1
+                        {
+                            tmpAddr=list->addr;
+                        }
+                        tmpInt=tmpAddr&0x300; // extract bits 8 and 9
+                        tmpInt=tmpInt>>2; // move bits 8 and 9 to 6 and 7 position
+                        tmpInt=tmpInt|0x28; // insert opcode 0x28
+                        fprintf(arqOut,"%X\n",tmpInt);
+                        tmpInt=tmpAddr&0xFF; // extract bits 0 to 7
+                        fprintf(arqOut,"%X\n",tmpInt); // addr
+                        addr++;
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                }
+            }
+            //JIE
+            if(strcmp(list->token,"jie")==0 && instructionFiniched==0)
+            {
+                list=list->next;
+                // jie a,
+                if(strcmp(list->token,"a")==0 && instructionFiniched==0)
+                {
+                    list=list->next;
+                    // jie a, b,
+                    if(strcmp(list->token,"b")==0 && instructionFiniched==0)
+                    {
+                        list=list->next;
+                        // jie a, b, addr
+                        if(list->type==4||list->type==1)
+                        {
+                            if(list->type==4) // is a number
                             {
-                                if(strcmp(tmp->token,list->token)==0)
-                                {
-                                    printf("RAM %s = %d\n",tmp->token,tmp->addr);
-                                    fprintf(arqOut,"%X\n",tmp->addr);
-                                    break;
-                                }
+                                tmpAddr=extractNumber(list->token);
                             }
-                            tmp=tmp->next;
-                        }
-                    }
-                }
-            }
-            // mov
-            if(strcmp(list->token,"mov")==0)    // mov
-            {
-                list=list->next;
-                if(strcmp(list->token,"b")==0)    // mov b,
-                {
-                    list=list->next;
-                    if(strcmp(list->token,"a")==0)    // mov b,a
-                    {
-                        fprintf(arqOut,"4\n");
-                    }
-                    /*if(strcmp(list->token,"ar")==0)    // mov b,ar
-                    {
-                        fprintf(arqOut,"xxxx\n");
-                    }*/
-                }
-                if(strcmp(list->token,"a")==0)    // mov a,
-                {
-                    list=list->next;
-                    if(strcmp(list->token,"b")==0)    // mov a,b
-                    {
-                        fprintf(arqOut,"5\n");
-                    }
-                    /*if(strcmp(list->token,"ar")==0)    // mov a,ar
-                    {
-                        fprintf(arqOut,"xxxx\n");
-                    }*/
-                }
-                if(strcmp(list->token,"ar")==0)    // mov ar,
-                {
-                    list=list->next;
-                    if(strcmp(list->token,"b")==0)    // mov ar,a
-                    {
-                        fprintf(arqOut,"6\n");
-                    }
-                    if(strcmp(list->token,"b")==0)    // mov ar,b
-                    {
-                        fprintf(arqOut,"7\n");
-                    }
-                }
-            }
-            // wr
-            if(strcmp(list->token,"wr")==0)    //wr
-            {
-                list=list->next;
-                if(strcmp(list->token,"a")==0)    // wr a
-                {
-                    fprintf(arqOut,"8\n");
-                }
-                if(strcmp(list->token,"b")==0)    // wr b
-                {
-                    fprintf(arqOut,"9\n");
-                }
-            }
-            // rd
-            if(strcmp(list->token,"rd")==0)    // rd
-            {
-                list=list->next;
-                if(strcmp(list->token,"a")==0)    // rd a
-                {
-                    fprintf(arqOut,"A\n");
-                }
-                if(strcmp(list->token,"b")==0)    // rd b
-                {
-                    fprintf(arqOut,"B\n");
-                }
-            }
-            // jmp
-            if(strcmp(list->token,"jmp")==0)    // jmp
-            {
-                addr++;
-                list=list->next;
-                if(list->token[0]>='0'&&list->token[0]<='9')    // jmp <addr>
-                {
-                    fprintf(arqOut,"C\n"); //12
-                    fprintf(arqOut,"%X\n",getNumber(list->token));
-                }
-                else // jmp label
-                {
-                    tmp=listH;
-                    while(tmp!=NULL) // find label addr
-                    {
-                        //printf("(%s)\n",tmp->token);
-                        char tmpCmp[50];
-                        strcpy(tmpCmp,list->token);
-                        tmpCmp[strlen(tmpCmp)+1]=0; // add '\0'
-                        tmpCmp[strlen(tmpCmp)]=':'; // add '\0'
-                        if(strcmp(tmp->token,tmpCmp)==0)
-                        {
-                            printf("label %s = %d\n",tmp->token,tmp->addr);
-                            fprintf(arqOut,"C\n");
-                            fprintf(arqOut,"%X\n",tmp->addr);
-                            break;
-                        }
-                        tmp=tmp->next;
-                    }
-                }
-            }
-            // jiz
-            if(strcmp(list->token,"jiz")==0)    // jiz
-            {
-                addr++;
-                list=list->next;
-                if(strcmp(list->token,"a")==0)
-                {
-                    list=list->next;
-                    if(list->token[0]>='0'&&list->token[0]<='9')    // jiz a,<addr>
-                    {
-                        fprintf(arqOut,"D\n"); // 13
-                        fprintf(arqOut,"%X\n",getNumber(list->token));
-                    }
-                    else // jiz a,label
-                    {
-                        tmp=listH;
-                        while(tmp!=NULL) // find label addr
-                        {
-                            //printf("(%s)\n",tmp->token);
-                            char tmpCmp[50];
-                            strcpy(tmpCmp,list->token);
-                            tmpCmp[strlen(tmpCmp)+1]=0; // add '\0'
-                            tmpCmp[strlen(tmpCmp)]=':'; // add '\0'
-                            if(strcmp(tmp->token,tmpCmp)==0)
+                            else // type 1
                             {
-                                printf("label %s = %d\n",tmp->token,tmp->addr);
-                                fprintf(arqOut,"D\n");
-                                fprintf(arqOut,"%X\n",tmp->addr);
-                                break;
+                                tmpAddr=list->addr;
                             }
-                            tmp=tmp->next;
+                            tmpInt=tmpAddr&0x300; // extract bits 8 and 9
+                            tmpInt=tmpInt>>2; // move bits 8 and 9 to 6 and 7 position
+                            tmpInt=tmpInt|0x29; // insert opcode 0x29
+                            fprintf(arqOut,"%X\n",tmpInt);
+                            tmpInt=tmpAddr&0xFF; // extract bits 0 to 7
+                            fprintf(arqOut,"%X\n",tmpInt); // addr
+                            addr++;
+                            invalidInstruction=0;
+                            instructionFiniched=1;
                         }
                     }
                 }
+            }
+            //JIG
+            if(strcmp(list->token,"jig")==0 && instructionFiniched==0)
+            {
+                list=list->next;
+                // jig a,
+                if(strcmp(list->token,"a")==0 && instructionFiniched==0)
+                {
+                    list=list->next;
+                    // jig a, b,
+                    if(strcmp(list->token,"b")==0 && instructionFiniched==0)
+                    {
+                        list=list->next;
+                        // jig a, b, addr
+                        if(list->type==4||list->type==1)
+                        {
+                            if(list->type==4) // is a number
+                            {
+                                tmpAddr=extractNumber(list->token);
+                            }
+                            else // type 1
+                            {
+                                tmpAddr=list->addr;
+                            }
+                            tmpInt=tmpAddr&0x300; // extract bits 8 and 9
+                            tmpInt=tmpInt>>2; // move bits 8 and 9 to 6 and 7 position
+                            tmpInt=tmpInt|0x2A; // insert opcode 0x2A
+                            fprintf(arqOut,"%X\n",tmpInt);
+                            tmpInt=tmpAddr&0xFF; // extract bits 0 to 7
+                            fprintf(arqOut,"%X\n",tmpInt); // addr
+                            addr++;
+                            invalidInstruction=0;
+                            instructionFiniched=1;
+                        }
+                    }
+                }
+            }
+            //JIS
+            if(strcmp(list->token,"jis")==0 && instructionFiniched==0)
+            {
+                list=list->next;
+                // jis a,
+                if(strcmp(list->token,"a")==0 && instructionFiniched==0)
+                {
+                    list=list->next;
+                    // jis a, b,
+                    if(strcmp(list->token,"b")==0 && instructionFiniched==0)
+                    {
+                        list=list->next;
+                        // jis a, b, addr
+                        if(list->type==4||list->type==1)
+                        {
+                            if(list->type==4) // is a number
+                            {
+                                tmpAddr=extractNumber(list->token);
+                            }
+                            else // type 1
+                            {
+                                tmpAddr=list->addr;
+                            }
+                            tmpInt=tmpAddr&0x300; // extract bits 8 and 9
+                            tmpInt=tmpInt>>2; // move bits 8 and 9 to 6 and 7 position
+                            tmpInt=tmpInt|0x2B; // insert opcode 0x2A
+                            fprintf(arqOut,"%X\n",tmpInt);
+                            tmpInt=tmpAddr&0xFF; // extract bits 0 to 7
+                            fprintf(arqOut,"%X\n",tmpInt); // addr
+                            addr++;
+                            invalidInstruction=0;
+                            instructionFiniched=1;
+                        }
+                    }
+                }
+            }
+            //JIN
+            if(strcmp(list->token,"jin")==0 && instructionFiniched==0)
+            {
+                list=list->next;
+                // jin a,
+                if(strcmp(list->token,"a")==0 && instructionFiniched==0)
+                {
+                    list=list->next;
+                    // jin a, addr
+                    if((list->type==4||list->type==1) && instructionFiniched==0)
+                    {
+                        if(list->type==4) // is a number
+                        {
+                            tmpAddr=extractNumber(list->token);
+                        }
+                        else // type 1
+                        {
+                            tmpAddr=list->addr;
+                        }
+                        tmpInt=tmpAddr&0x300; // extract bits 8 and 9
+                        tmpInt=tmpInt>>2; // move bits 8 and 9 to 6 and 7 position
+                        tmpInt=tmpInt|0x2C; // insert opcode 0x2C
+                        fprintf(arqOut,"%X\n",tmpInt);
+                        tmpInt=tmpAddr&0xFF; // extract bits 0 to 7
+                        fprintf(arqOut,"%X\n",tmpInt); // addr
+                        addr++;
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                }
+            }
+            //JIC
+            if(strcmp(list->token,"jic")==0 && instructionFiniched==0)
+            {
+                list=list->next;
+                // jic a,
+                if(strcmp(list->token,"a")==0 && instructionFiniched==0)
+                {
+                    list=list->next;
+                    // jic a, addr
+                    if(list->type==4||list->type==1)
+                    {
+                        if(list->type==4) // is a number
+                        {
+                            tmpAddr=extractNumber(list->token);
+                        }
+                        else // type 1
+                        {
+                            tmpAddr=list->addr;
+                        }
+                        tmpInt=tmpAddr&0x300; // extract bits 8 and 9
+                        tmpInt=tmpInt>>2; // move bits 8 and 9 to 6 and 7 position
+                        tmpInt=tmpInt|0x2D; // insert opcode 0x2D
+                        fprintf(arqOut,"%X\n",tmpInt);
+                        tmpInt=tmpAddr&0xFF; // extract bits 0 to 7
+                        fprintf(arqOut,"%X\n",tmpInt); // addr
+                        addr++;
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                }
+            }
+            //SET
+            if(strcmp(list->token,"set")==0 && instructionFiniched==0)
+            {
+                list=list->next;
+                // set c
+                if(strcmp(list->token,"c")==0 && instructionFiniched==0) // set c
+                {
+                    fprintf(arqOut,"2E\n");
+                    invalidInstruction=0;
+                    instructionFiniched=1;
+                }
+            }
+            //CLR
+            if(strcmp(list->token,"clr")==0 && instructionFiniched==0)
+            {
+                list=list->next;
+                // clr c
+                if(strcmp(list->token,"c")==0 && instructionFiniched==0)
+                {
+                    fprintf(arqOut,"2F\n"); // not a
+                    invalidInstruction=0;
+                    instructionFiniched=1;
+                }
+            }
+            //NOT
+            if(strcmp(list->token,"not")==0 && instructionFiniched==0)
+            {
+                list=list->next;
+                // not a
+                if(strcmp(list->token,"a")==0 && instructionFiniched==0)
+                {
+                    fprintf(arqOut,"30\n"); // not a
+                    invalidInstruction=0;
+                    instructionFiniched=1;
+                }
+            }
+            //OR
+            if(strcmp(list->token,"or")==0 && instructionFiniched==0)
+            {
+                list=list->next;
+                // or a,
+                if(strcmp(list->token,"a")==0 && instructionFiniched==0)
+                {
+                    list=list->next;
+                    // or a, b
+                    if(strcmp(list->token,"b")==0 && instructionFiniched==0)
+                    {
+                        fprintf(arqOut,"31\n"); // or a, b
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                    // or a, val
+                    if(list->type==4 && instructionFiniched==0)
+                    {
+                        fprintf(arqOut,"32\n"); // or a, val
+                        fprintf(arqOut,"%X\n",extractNumber(list->token)); // val
+                        addr++;
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                }
+            }
+            //AND
+            if(strcmp(list->token,"and")==0 && instructionFiniched==0)
+            {
+                list=list->next;
+                // and a,
+                if(strcmp(list->token,"a")==0 && instructionFiniched==0)
+                {
+                    list=list->next;
+                    // and a, b
+                    if(strcmp(list->token,"b")==0)
+                    {
+                        fprintf(arqOut,"33\n"); // and a, b
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                    // and a, val
+                    if(list->type==4 && instructionFiniched==0)
+                    {
+                        fprintf(arqOut,"34\n"); // and a, val
+                        fprintf(arqOut,"%X\n",extractNumber(list->token)); // val
+                        addr++;
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                }
+            }
+            //XOR
+            if(strcmp(list->token,"xor")==0 && instructionFiniched==0)
+            {
+                list=list->next;
+                // xor a,
+                if(strcmp(list->token,"a")==0 && instructionFiniched==0)
+                {
+                    list=list->next;
+                    // xor a, b
+                    if(strcmp(list->token,"b")==0)
+                    {
+                        fprintf(arqOut,"35\n"); // xor a, b
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                    // xor a, val
+                    if(list->type==4 && instructionFiniched==0)
+                    {
+                        fprintf(arqOut,"36\n"); // xor a, val
+                        fprintf(arqOut,"%X\n",extractNumber(list->token)); // val
+                        addr++;
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                }
+            }
+            //ADD
+            if(strcmp(list->token,"add")==0 && instructionFiniched==0)
+            {
+                list=list->next;
+                // add a,
+                if(strcmp(list->token,"a")==0 && instructionFiniched==0)
+                {
+                    list=list->next;
+                    // add a, b
+                    if(strcmp(list->token,"b")==0)
+                    {
+                        fprintf(arqOut,"37\n"); // add a, b
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                    // add a, val
+                    if(list->type==4 && instructionFiniched==0)
+                    {
+                        fprintf(arqOut,"38\n"); // add a, val
+                        fprintf(arqOut,"%X\n",extractNumber(list->token)); // val
+                        addr++;
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                }
+            }
+            //SUB
+            if(strcmp(list->token,"sub")==0 && instructionFiniched==0)
+            {
+                list=list->next;
+                // sub a,
+                if(strcmp(list->token,"a")==0 && instructionFiniched==0)
+                {
+                    list=list->next;
+                    // sub a, b
+                    if(strcmp(list->token,"b")==0)
+                    {
+                        fprintf(arqOut,"39\n"); // sub a, b
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                    // sub a, val
+                    if(list->type==4 && instructionFiniched==0)
+                    {
+                        fprintf(arqOut,"3A\n"); // sub a, val
+                        fprintf(arqOut,"%X\n",extractNumber(list->token)); // val
+                        addr++;
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                }
+            }
+            //DEC
+            if(strcmp(list->token,"dec")==0 && instructionFiniched==0)
+            {
+                list=list->next;
+                // dec a
+                if(strcmp(list->token,"a")==0 && instructionFiniched==0)
+                {
+                    fprintf(arqOut,"3B\n"); // dec a
+                    invalidInstruction=0;
+                    instructionFiniched=1;
+                }
+                // dec b
+                if(strcmp(list->token,"b")==0 && instructionFiniched==0)
+                {
+                    fprintf(arqOut,"3C\n"); // dec b
+                    invalidInstruction=0;
+                    instructionFiniched=1;
+                }
+            }
+            //LSL
+            if(strcmp(list->token,"lsl")==0 && instructionFiniched==0)
+            {
+                list=list->next;
+                // lsl a
+                if(strcmp(list->token,"a")==0 && instructionFiniched==0)
+                {
+                    fprintf(arqOut,"3D\n"); // lsl a
+                    invalidInstruction=0;
+                    instructionFiniched=1;
+                }
+            }
+            //LSR
+            if(strcmp(list->token,"lsr")==0 && instructionFiniched==0)
+            {
+                list=list->next;
+                // lsr a
+                if(strcmp(list->token,"a")==0 && instructionFiniched==0)
+                {
+                    fprintf(arqOut,"3E\n"); // lsr a
+                    invalidInstruction=0;
+                    instructionFiniched=1;
+                }
+            }
+            //SWAP
+            if(strcmp(list->token,"swap")==0 && instructionFiniched==0)
+            {
+                list=list->next;
+                // swap a,
+                if(strcmp(list->token,"a")==0 && instructionFiniched==0)
+                {
+                    list=list->next;
+                    // swap a, b
+                    if(strcmp(list->token,"b")==0 && instructionFiniched==0)
+                    {
+                        fprintf(arqOut,"3F\n"); // sap a, b
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                }
+            }
+            if(invalidInstruction==1)
+            {
+                printf("[ERROR Line %d] Invalid instruction near to (%s)\n",list->lineNumber,list->token);
+                ret=1;
             }
         }
-
         list=list->next;
     }
     printf("PROM = %d bytes",addr);
-    return(0);
+    return(ret);
 }
 
-int main()
+int main(int argc, char *argv[])
 {
+    int error=0;
     FILE* arqIn;
     FILE* arqOut;
     struct tokenList* tokens = NULL;
 
     printf("\nAssembler V0.1\n");
+    printf("Assembling: \"%s\" to \"%s\"\n",argv[1],argv[2]);
 
-    arqIn = fopen("in.txt", "r");
+
+    if(argc<3)
+    {
+        printf("\nMissing arguments: use AssemblerCpuD.exe \"inputFile.ext\" \"outputFile.ext\"\n");
+        return(0);
+    }
+
+    arqIn = fopen(argv[1], "r");
 
     if(arqIn == NULL) // testa se o arquivo foi aberto com sucesso
     {
-        printf("\n\nImpossivel abrir o arquivo de entrada!\n\n");
+        printf("\n\nUnable to open input file!\n\n");
         return 0;
     }
 
-    arqOut = fopen("out.hex", "w");
+    arqOut = fopen(argv[2], "w");
 
     if(arqOut == NULL) // testa se o arquivo foi aberto com sucesso
     {
-        printf("\n\nImpossivel abrir o arquivo de saida!\n\n");
+        printf("\n\nUnable to open output file!\n\n");
         return 0;
     }
 
-    stractTokens(&tokens, arqIn);
-    analizeTokens(&tokens);
-    stractLabels(tokens);
-    print(tokens);
-    compile(tokens, arqOut);
-
+    error+=extractTokens(&tokens, arqIn);
+    error+=analizeTokens(&tokens);
+    error+=extractConstants(tokens);
+    error+=setConstants(tokens);
+    error+=extractDataAddr(tokens);
+    error+=setDataAddr(tokens);
+    error+=extract2BytsInstruction(tokens);
+    error+=extractLabels(tokens);
+    error+=setLabels(tokens);
+    //print(tokens); // for tests only
+    error+=errorCheck(tokens);
+    error+=compile(tokens, arqOut);
+    if(error==0)
+    {
+        printf("\nCompiled successfully!\n\n");
+    }
+    else
+    {
+        printf("\nErrors were found during compilation!\n\n");
+    }
     fclose(arqIn);
     fclose(arqOut);
     return 0;
