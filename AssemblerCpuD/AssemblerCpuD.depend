@@ -1,5 +1,5 @@
 # depslib dependency file v1.0
-1632940738 source:d:\projetos\cpudidatica\assemblercpud\assemblercpud\main.c
+1635969058 source:d:\projetos\cpudidatica\assemblercpud\assemblercpud\main.c
 	<stdio.h>
 	<stdlib.h>
 	<string.h>

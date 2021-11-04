@@ -1,0 +1,133 @@
+; driver 7 segments
+; 0 -> 0x3f   0011 1111
+; 1 -> 0x06   0000 0110
+; 2 -> 0x5B   0101 1011
+; 3 -> 0x4F   0100 1111
+; 4 -> 0x66   0110 0110
+; 5 -> 0x6D   0110 1101
+; 6 -> 0x7D   0111 1101
+; 7 -> 0x07   0000 0111
+; 8 -> 0x7F   0111 1111
+; 9 -> 0x6F   0110 1111
+; A -> 0x77   0111 0111
+; B -> 0x7C   0111 1100
+; C -> 0x39   0011 1001
+; D -> 0x5E   0101 1110
+; E -> 0x79   0111 1001
+; F -> 0x71   0111 0001
+
+byte numero
+
+const leds 0
+const display 1
+
+reset:
+	ld a, 0			; número a apresentar no display
+	wr numero, a 	; guarda o número na RAM
+	ld a, 2			; carrega 2 em a 
+	out leds, a 	; joga 2 nos leds
+	jmp disp		; salta para o driver do display
+retorno:
+	rd a, numero	; carrega o número em a
+	ld b, 1			; carrega 1 em b
+	add a, b		; incrementa o número
+	ld b, 0x0F		; carrega 0x0F em b
+	jig a, b, reset	; se a maior que b salta para reset
+	wr numero, a 	; guarda o número na RAM
+	jmp disp		; salta para o driver do display
+	
+disp:
+	rd a, numero	; carrega o número em a
+	ld b, 0			; carrega 0 em b
+	jig a, b, um	; salta se a maior que b 
+	ld a, 0x3f		; senão carrega 0x3f em a 
+	out display, a	; manda a para a saida
+	jmp retorno		; retorna
+um:
+	ld b, 1			; carrega 1 em b
+	jig a, b, dois	; salta se a maior que b 
+	ld a, 0x06		; senão carrega 0x06 em a 
+	out display, a	; manda a para a saida
+	jmp retorno		; retorna
+dois:
+	ld b, 2			; carrega 1 em b
+	jig a, b, tres	; salta se a maior que b 
+	ld a, 0x5b		; senão carrega 0x5B em a 
+	out display, a	; manda a para a saida
+	jmp retorno		; retorna
+tres:
+	ld b, 3			; carrega 3 em b
+	jig a, b, quatro	; salta se a maior que b 
+	ld a, 0x4F		; senão carrega 0x4F em a 
+	out display, a	; manda a para a saida
+	jmp retorno		; retorna
+quatro:
+	ld b, 4			; carrega 4 em b
+	jig a, b, cinco	; salta se a maior que b 
+	ld a, 0x66		; senão carrega 0x66 em a 
+	out display, a	; manda a para a saida
+	jmp retorno		; retorna
+cinco:
+	ld b, 5			; carrega 5 em b
+	jig a, b, seis	; salta se a maior que b 
+	ld a, 0x6D		; senão carrega 0x6D em a 
+	out display, a	; manda a para a saida
+	jmp retorno		; retorna
+seis:
+	ld b, 6			; carrega 6 em b
+	jig a, b, sete	; salta se a maior que b 
+	ld a, 0x7D		; senão carrega 0x7D em a 
+	out display, a	; manda a para a saida
+	jmp retorno		; retorna
+sete:
+	ld b, 7			; carrega 7 em b
+	jig a, b, oito	; salta se a maior que b 
+	ld a, 0x07		; senão carrega 0x07 em a 
+	out display, a	; manda a para a saida
+	jmp retorno		; retorna
+oito:
+	ld b, 8			; carrega 8 em b
+	jig a, b, nove	; salta se a maior que b 
+	ld a, 0x7F		; senão carrega 0x7F em a 
+	out display, a	; manda a para a saida
+	jmp retorno		; retorna
+nove:
+	ld b, 9			; carrega 9 em b
+	jig a, b, n_a	; salta se a maior que b 
+	ld a, 0x6F		; senão carrega 0x6F em a 
+	out display, a	; manda a para a saida
+	jmp retorno		; retorna
+n_a:
+	ld b, 0x0A		; carrega 0x0A em b
+	jig a, b, n_b	; salta se a maior que b 
+	ld a, 0x77		; senão carrega 0x77 em a 
+	out display, a	; manda a para a saida
+	jmp retorno		; retorna
+n_b:
+	ld b, 0x0B		; carrega 0x0B em b
+	jig a, b, n_c	; salta se a maior que b 
+	ld a, 0x7C		; senão carrega 0x7C em a 
+	out display, a	; manda a para a saida
+	jmp retorno		; retorna
+n_c:
+	ld b, 0x0C		; carrega 0x0C em b
+	jig a, b, n_d	; salta se a maior que b 
+	ld a, 0x39		; senão carrega 0x39 em a 
+	out display, a	; manda a para a saida
+	jmp retorno		; retorna
+n_d:
+	ld b, 0x0D		; carrega 0x0D em b
+	jig a, b, n_e	; salta se a maior que b 
+	ld a, 0x5E		; senão carrega 0x5E em a 
+	out display, a	; manda a para a saida
+	jmp retorno		; retorna
+n_e:
+	ld b, 0x0E		; carrega 0x0E em b
+	jig a, b, n_f	; salta se a maior que b 
+	ld a, 0x79		; senão carrega 0x79 em a 
+	out display, a	; manda a para a saida
+	jmp retorno		; retorna
+n_f:
+	ld a, 0x71		; carrega 0x71 em a 
+	out display, a	; manda a para a saida
+	jmp retorno		; retorna

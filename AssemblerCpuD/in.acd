@@ -1,18 +1,100 @@
-; programa de teste
-byte dado
-const valor 0xBA
-const display1 0
-const display2 1
-const leds 2
+;		VALID COMMANDS
+; byte 		- reserv 1 byte in RAM abd return the address
+; word 		- reserv 2 bytes in RAM abd return the address of first byte
+; define 	- define a alias for a number
+; const 	- criate a constant in PROM and give a alias to it
+
+;		VALID INSTRUCTIONS
+; NOP				- no opperation
+; LD A,val			- PROM->A
+; LD B,val			- PROM->B
+; LD A,B			- PROM(B)->A
+; MOV B,A			- A -> B
+; MOV A,B			- B -> A
+; WR B,A			- A->RAM(B)
+; WR addr,A			- A->RAM(PROM)
+; WR addr,B			- B->RAM(PROM)
+; RD A,B			- RAM(B)->A
+; RD A,addr			- RAM(PROM)->A
+; RD B,addr			- RAM(PROM)->B
+; IN A,addr			- IN(PROM)->A
+; OUT addr,A		- A->OUT(PROM)
+; JMP B				- B->PC
+; JMP addr			- PROM->PC
+; JIZ A, addr		- if(a=0) PROM->PC
+; JIE A, B, addr	- if	(A=B) PROM->PC
+; JIG A, B, addr	- if(A>B) PROM->PC
+; JIS A, B, addr	- if(A<B) PROM->PC
+; JIN A, addr		- if(A<0) PROM->PC
+; JIC addr			- if(C=1) PROM->PC
+; SET C				- 1->C
+; CLR C				- 0->C
+; NOT A				- NOT A -> A
+; OR A, B			- A or B -> A
+; AND A, B			- A and B -> A
+; XOR A, B			- A xor B -> A
+; ADD A, B			- A + B -> A
+; SUB A, B			- A - B -> A
+; LSL A				- A Shift Left->A
+; LSR A				- A Shift Right->A
+
+
+
+
+define inPort 0
+define ledPort 0
+define dispPort 1
+byte tmp
+byte number
 
 reset:
-	in a, 0 			; lê a entrada e armazena em a
-	xor a, 0x0F			; Inverte os 4 bits mais baixos
-	ld ar, dado 		; armazena o endereço do dado em ar
-	wr ar, a 			; grava o contúdo de a na ram
-	add a, 4 			; soma 4 em a
-	out display2, a 	; envia o conteudo de a para o display2 de saída
-	rd a, dado 			; lê o dado da ram para a
-	out display1, a 	; envia o conteudo de a para o endereço 0 de saída
-	out leds, a			; envia o valor de a para a saída 2
-	jmp reset 			; salta para o início do programa
+	in a, inPort
+	wr tmp, a
+	ld b, 0x0f
+	and a, b
+	wr number, a
+	rd a, tmp
+	lsr a
+	clr c
+	lsr a
+	clr c
+	lsr a
+	clr c
+	lsr a
+	out ledPort, a
+	ld b, 3
+	jig a, b, trace
+	jmp display 
+retDisplay:
+	jmp reset
+	
+trace:
+	ld a, 0x40
+	out dispPort, a
+	jmp reset
+
+display:
+	rd a, number
+	ld b, n_0
+	add a, b
+	mov b, a
+	ld a, b
+	out dispPort, a
+	jmp retDisplay
+	
+const n_0 0x3f
+const n_1 0x06
+const n_2 0x5B
+const n_3 0x4F
+const n_4 0x66
+const n_5 0x6D
+const n_6 0x7D
+const n_7 0x07
+const n_8 0x7F
+const n_9 0x6F
+const n_A 0x77
+const n_B 0x7C
+const n_C 0x39
+const n_D 0x5E
+const n_E 0x79
+const n_F 0x71

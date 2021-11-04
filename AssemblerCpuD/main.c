@@ -27,12 +27,14 @@ type=5 2 bytes instructions
 type=6 command byte
 type=7 data addr
 type=8 command word
-type=9 command const
-type=10 const name
-
+type=9 command define
+type=10 define name
+type=11 command const
+type=12 const name
 */
 
-
+unsigned char PROM[1024];
+int addr=0; // PROM
 
 struct tokenList {
     char token[50];
@@ -68,9 +70,9 @@ void print(struct tokenList *list)
 {
     while(list!=NULL)
     {
-        printf("%d ",list->type);
-        printf("%s ",list->token);
-        printf("%d",list->addr);
+        printf("type=%d ",list->type);
+        printf("token=%s ",list->token);
+        printf("addr=%d",list->addr);
         printf(" (line = %d)\n",list->lineNumber);
         list=list->next;
     }
@@ -89,7 +91,7 @@ int extractTokens(struct tokenList** tk, FILE* inPt)
         text[ptText]=c;
         if(c==';')
         {
-            while(c>=' ')
+            while(c>=' '||c=='\t')
             {
                 c=getc(inPt);
             }
@@ -118,12 +120,14 @@ int extractTokens(struct tokenList** tk, FILE* inPt)
 
 int analizeTokens(struct tokenList** list)
 {
-    char insts[30][10]={{"nop"},{"ld"},{"mov"},{"wr"},{"rd"},{"in"},{"out"},{"inc"},{"jmp"},{"jiz"},{"jie"},{"jig"},{"jis"},{"jin"},{"jic"},{"set"},{"clr"},{"not"},{"or"},{"and"},{"xor"},{"add"},{"sub"},{"dec"},{"lsl"},{"slr"},{"swap"},{"xxxx"},{"xxxx"},{"xxxx"}}; //instructions
-    int numIsnt=30;
-    char regs[6][10]={{"a"},{"b"},{"ar"},{"ar+"},{"pc"},{"c"}};
-    int numRegs=6;
-    char commands[3][10]={{"byte"},{"word"},{"const"}};
-    int numCommands=3;
+    //char insts[30][10]={{"nop"},{"ld"},{"mov"},{"wr"},{"rd"},{"in"},{"out"},{"inc"},{"jmp"},{"jiz"},{"jie"},{"jig"},{"jis"},{"jin"},{"jic"},{"set"},{"clr"},{"not"},{"or"},{"and"},{"xor"},{"add"},{"sub"},{"dec"},{"lsl"},{"slr"},{"swap"},{"xxxx"},{"xxxx"},{"xxxx"}}; //instructions
+    char insts[24][10]={{"nop"},{"ld"},{"mov"},{"wr"},{"rd"},{"in"},{"out"},{"jmp"},{"jiz"},{"jie"},{"jig"},{"jis"},{"jin"},{"jic"},{"set"},{"clr"},{"not"},{"or"},{"and"},{"xor"},{"add"},{"sub"},{"lsl"},{"lsr"}}; //instructions
+    int numIsnt=24;
+    //char regs[6][10]={{"a"},{"b"},{"ar"},{"ar+"},{"pc"},{"c"}};
+    char regs[3][10]={{"a"},{"b"},{"c"}};
+    int numRegs=3;
+    char commands[4][10]={{"byte"},{"word"},{"define"},{"const"}};
+    int numCommands=4;
     int ret=0;
     struct tokenList* temp = *list;
     while(temp!=NULL)
@@ -169,9 +173,13 @@ int analizeTokens(struct tokenList** list)
                         temp=temp->next;
                         temp->type=7; // data addr
                     }
-                    if(strcmp("const",temp->token)==0)
+                    if(strcmp("define",temp->token)==0)
                     {
                         temp->type=9; // command word
+                    }
+                    if(strcmp("const",temp->token)==0)
+                    {
+                        temp->type=11; // command word
                     }
                 }
             }
@@ -218,30 +226,27 @@ int extractNumber(char *txt)
 }
 
 
-int extractConstants(struct tokenList* list)
+int extractConst(struct tokenList* list)
 {
     int ret=0;
     while(list!=NULL)
     {
-        if(list->type==9) // constant
+        if(list->type==11) // constant
         {
             list=list->next;
             if(list->type==0)
             {
-                list->type=10; // constant name
-                if(list->next->type==4)
-                {
-                    list->addr=extractNumber(list->next->token);
-                }
-                else
-                {
-                    printf("[ERROR Line %d] Invalid constant value (%s)\n",list->lineNumber,list->next->token);
-                    ret=1;
-                }
+                list->type=12; // constant name
             }
             else
             {
                 printf("[ERROR Line %d] Invalid constant name (%s)\n",list->lineNumber,list->token);
+                ret=1;
+            }
+            list=list->next;
+            if(list->type!=4)
+            {
+                printf("[ERROR Line %d] Invalid constant value (%s)\n",list->lineNumber,list->token);
                 ret=1;
             }
         }
@@ -250,13 +255,98 @@ int extractConstants(struct tokenList* list)
     return(ret);
 }
 
-int setConstants(struct tokenList* list)
+
+int updateConst(struct tokenList* list)
+{
+    //struct tokenList* hlist = list;
+    //struct tokenList* templist = list;
+    int addr=0;
+    while(list!=NULL)
+    {
+        if(list->type==2) // 1 byte instruction
+        {
+            addr++;
+        }
+        if(list->type==5) // 2 byte instruction
+        {
+            addr+=2;
+        }
+        if(list->type==12) // constant name
+        {
+            list->addr=addr;
+            addr++;
+        }
+        list=list->next;
+    }
+    return(0);
+}
+
+int setConst(struct tokenList* list)
 {
     struct tokenList* hlist = list;
     struct tokenList* templist = list;
     while(list!=NULL)
     {
-        if(list->type!=10) // not a constant declaration
+        if(list->type!=12) // not a constant declaration
+        {
+            templist = hlist;
+            while(templist!=NULL)
+            {
+                if(templist->type==12)
+                {
+                    if(strcmp(templist->token,list->token)==0)
+                    {
+                        sprintf(list->token,"%d",templist->addr);
+                        list->type=4;
+                    }
+                }
+                templist=templist->next;
+            }
+        }
+        list=list->next;
+    }
+    return(0);
+}
+
+int extractDefines(struct tokenList* list)
+{
+    int ret=0;
+    while(list!=NULL)
+    {
+        if(list->type==9) // define
+        {
+            list=list->next;
+            if(list->type==0)
+            {
+                list->type=10; // define name
+                if(list->next->type==4)
+                {
+                    list->addr=extractNumber(list->next->token);
+                }
+                else
+                {
+                    printf("[ERROR Line %d] Invalid define value (%s)\n",list->lineNumber,list->next->token);
+                    ret=1;
+                }
+            }
+            else
+            {
+                printf("[ERROR Line %d] Invalid define name (%s)\n",list->lineNumber,list->token);
+                ret=1;
+            }
+        }
+        list=list->next;
+    }
+    return(ret);
+}
+
+int setDefines(struct tokenList* list)
+{
+    struct tokenList* hlist = list;
+    struct tokenList* templist = list;
+    while(list!=NULL)
+    {
+        if(list->type!=10) // not a define declaration
         {
             templist = hlist;
             while(templist!=NULL)
@@ -316,9 +406,12 @@ int extract2BytsInstruction(struct tokenList* list) // type = 5
             if(strcmp("ld",list->token)==0)
             {
                 temp=list->next;
-                if(temp->next->type==4)
+                if(strcmp(temp->next->token,"b")==0 )// constant address
                 {
-                    // ld xx,val
+                    list->type=2;
+                }
+                else
+                {
                     list->type=5;
                 }
             }
@@ -369,7 +462,15 @@ int extract2BytsInstruction(struct tokenList* list) // type = 5
             // jmp
             if(strcmp("jmp",list->token)==0)
             {
-                list->type=5;
+                temp=list->next;
+                if(strcmp(temp->token,"b")==0 )// constant address
+                {
+                    list->type=2;
+                }
+                else
+                {
+                    list->type=5;
+                }
             }
             // jiz
             if(strcmp("jiz",list->token)==0)
@@ -409,20 +510,22 @@ int extract2BytsInstruction(struct tokenList* list) // type = 5
 
 int extractLabels(struct tokenList* list)
 {
-    int addr=0; // prom
+    int promAddr=0; // prom
     while(list!=NULL)
     {
         if(list->type==2)
         {
-            addr++; // instruction
+            promAddr++; // instruction
+            printf("=========== 1 %s \n",list->token);
         }
         if(list->type==5)
         {
-            addr+=2; // 2 bytes instruction
+            promAddr+=2; // 2 bytes instruction
+            printf("=========== 2 %s \n",list->token);
         }
         if(list->type==1)
         {
-            list->addr=addr; // label
+            list->addr=promAddr; // label
         }
         list=list->next;
     }
@@ -476,11 +579,10 @@ int errorCheck(struct tokenList* list)
     return(ret);
 }
 
-
+/*
 int compile(struct tokenList* list, FILE* arqOut) // Hneemaan Digital format
 {
     int ret=0; // return value, 0=no error
-    int addr=0; // PROM
     int tmpInt;
     int tmpAddr;
     int invalidInstruction;
@@ -1466,6 +1568,767 @@ int compile(struct tokenList* list, FILE* arqOut) // Hneemaan Digital format
     return(ret);
 }
 
+*/
+
+int compile32i(struct tokenList* list) // Hneemaan Digital format
+{
+    int ret=0; // return value, 0=no error
+    //int tmpInt;
+    int tmpAddr;
+    int invalidInstruction;
+    int instructionFiniched;
+
+    while(list!=NULL)
+    {
+        if(list->type==12) //PROM constant Data
+        {
+            list=list->next;
+            PROM[addr]=extractNumber(list->token); // add data to PROM
+            addr++;
+        }
+
+        if(list->type==2||list->type==5) //instruction
+        {
+            //printf("inst -> %s, %s (l%d)\n",list->token,list->next->token,list->lineNumber);
+            invalidInstruction=1;
+            instructionFiniched=0;
+            // NOP
+            if(strcmp(list->token,"nop")==0)
+            {
+                PROM[addr]=0; // nop
+                addr++;
+                invalidInstruction=0;
+                instructionFiniched=1;
+            }
+            //LD
+            if(strcmp(list->token,"ld")==0 && instructionFiniched==0)
+            {
+                list=list->next;
+                // ld a,
+                if(strcmp(list->token,"a")==0 && instructionFiniched==0)
+                {
+                    list=list->next;
+                    // ld a, val
+                    if(list->type==4 && instructionFiniched==0)
+                    {
+                        PROM[addr]=1; // ld a,
+                        addr++;
+                        PROM[addr]=extractNumber(list->token); // val
+                        addr++;
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                    // ld a, b
+                    if(strcmp(list->token,"b")==0 && instructionFiniched==0)
+                    {
+                        PROM[addr]=3; // ld a,b
+                        addr++;
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                    else
+                    {
+                        instructionFiniched=1;
+                    }
+                }
+                // ld b,
+                if(strcmp(list->token,"b")==0 && instructionFiniched==0)
+                {
+                    list=list->next;
+                    // ld b, val
+                    if(list->type==4||list->type==7)
+                    {
+                        if(list->type==4) // is a number
+                        {
+                            tmpAddr=extractNumber(list->token);
+                        }
+                        else // type 7
+                        {
+                            tmpAddr=list->addr;
+                        }
+                        PROM[addr]=2; // ld b,
+                        addr++;
+                        PROM[addr]=tmpAddr;
+                        addr++;
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                    else
+                    {
+                        instructionFiniched=1;
+                    }
+                }
+            }
+            //MOV
+            if(strcmp(list->token,"mov")==0 && instructionFiniched==0)
+            {
+                list=list->next;
+                // mov b,
+                if(strcmp(list->token,"b")==0 && instructionFiniched==0)
+                {
+                    list=list->next;
+                    // mov b, a
+                    if(strcmp(list->token,"a")==0)
+                    {
+                        PROM[addr]=4; // mov b, a
+                        addr++;
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                }
+                // mov a,
+                if(strcmp(list->token,"a")==0 && instructionFiniched==0)
+                {
+                    list=list->next;
+                    // mov a, b
+                    if(strcmp(list->token,"b")==0)
+                    {
+                        PROM[addr]=5; // mov a, b
+                        addr++;
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                }
+                else
+                {
+                    instructionFiniched=1;
+                }
+            }
+            //WR
+            if(strcmp(list->token,"wr")==0 && instructionFiniched==0)
+            {
+                list=list->next;
+                // wr b,
+                if(strcmp(list->token,"b")==0 && instructionFiniched==0)
+                {
+                    list=list->next;
+                    // wr b, a
+                    if(strcmp(list->token,"a")==0)
+                    {
+                        PROM[addr]=6; // wr b, a
+                        addr++;
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                }
+                // wr addr,
+                if((list->type==4||list->type==7) && instructionFiniched==0)
+                {
+                    if(list->type==4) // is a number
+                    {
+                        tmpAddr=extractNumber(list->token);
+                    }
+                    else // type 7
+                    {
+                        tmpAddr=list->addr;
+                    }
+                    list=list->next;
+                    // wr addr, a
+                    if(strcmp(list->token,"a")==0 && instructionFiniched==0)
+                    {
+                        PROM[addr]=7; // wr addr, a
+                        addr++;
+                        PROM[addr]=tmpAddr;
+                        addr++;
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                    // wr addr, b
+                    if(strcmp(list->token,"b")==0 && instructionFiniched==0)
+                    {
+                        PROM[addr]=8; // wr addr, b
+                        addr++;
+                        PROM[addr]=tmpAddr;
+                        addr++;
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                    else
+                    {
+                        instructionFiniched=1;
+                    }
+                }
+            }
+            //RD
+            if(strcmp(list->token,"rd")==0 && instructionFiniched==0)
+            {
+                list=list->next;
+                // rd a,
+                if(strcmp(list->token,"a")==0 && instructionFiniched==0)
+                {
+                    list=list->next;
+                    // rd a, b
+                    if(strcmp(list->token,"b")==0)
+                    {
+                        PROM[addr]=9; // rd a, b
+                        addr++;
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                    // rd a, addr
+                    if((list->type==4||list->type==7) && instructionFiniched==0)
+                    {
+                        if(list->type==4) // is a number
+                        {
+                            tmpAddr=extractNumber(list->token);
+                        }
+                        else // type 7
+                        {
+                            tmpAddr=list->addr;
+                        }
+                        PROM[addr]=0xA; // rd a, addr
+                        addr++;
+                        PROM[addr]=tmpAddr;
+                        addr++;
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                }
+                // rd b,
+                if(strcmp(list->token,"b")==0 && instructionFiniched==0)
+                {
+                    list=list->next;
+                    // rd b, addr
+                    if((list->type==4||list->type==7) && instructionFiniched==0)
+                    {
+                        if(list->type==4) // is a number
+                        {
+                            tmpAddr=extractNumber(list->token);
+                        }
+                        else // type 7
+                        {
+                            tmpAddr=list->addr;
+                        }
+                        PROM[addr]=0xB; // rd b, addr
+                        addr++;
+                        PROM[addr]=tmpAddr;
+                        addr++;
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                }
+                else
+                {
+                    instructionFiniched=1;
+                }
+            }
+            //IN
+            if(strcmp(list->token,"in")==0 && instructionFiniched==0)
+            {
+                list=list->next;
+                // in a,
+                if(strcmp(list->token,"a")==0 && instructionFiniched==0)
+                {
+                    list=list->next;
+                    // in a, addr
+                    if((list->type==4||list->type==7) && instructionFiniched==0)
+                    {
+                        if(list->type==4) // is a number
+                        {
+                            tmpAddr=extractNumber(list->token);
+                        }
+                        else // type 7
+                        {
+                            tmpAddr=list->addr;
+                        }
+                        PROM[addr]=0xC; // in a, addr
+                        addr++;
+                        PROM[addr]=tmpAddr;
+                        addr++;
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                    else
+                    {
+                        instructionFiniched=1;
+                    }
+                }
+            }
+            //OUT
+            if(strcmp(list->token,"out")==0 && instructionFiniched==0)
+            {
+                list=list->next;
+                // out addr,
+                if((list->type==4||list->type==7) && instructionFiniched==0)
+                {
+                    if(list->type==4) // is a number
+                    {
+                        tmpAddr=extractNumber(list->token);
+                    }
+                    else // type 7
+                    {
+                        tmpAddr=list->addr;
+                    }
+                    list=list->next;
+                    // out addr, a
+                    if(strcmp(list->token,"a")==0 && instructionFiniched==0)
+                    {
+                        PROM[addr]=0xD; // out addr, a
+                        addr++;
+                        PROM[addr]=tmpAddr;
+                        addr++;
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                    else
+                    {
+                        instructionFiniched=1;
+                    }
+                }
+            }
+            //JMP
+            if(strcmp(list->token,"jmp")==0 && instructionFiniched==0)
+            {
+                list=list->next;
+                // jmp b
+                if(strcmp(list->token,"b")==0)
+                {
+                    PROM[addr]=0xE; // jmp b
+                    addr++;
+                    invalidInstruction=0;
+                    instructionFiniched=1;
+                }
+                // jmp addr
+                if((list->type==4||list->type==1) && instructionFiniched==0)
+                {
+                    if(list->type==4) // is a number
+                    {
+                        tmpAddr=extractNumber(list->token);
+                    }
+                    else // type 1
+                    {
+                        tmpAddr=list->addr;
+                    }
+                    PROM[addr]=0xF; // jmp addr
+                    addr++;
+                    PROM[addr]=tmpAddr;
+                    addr++;
+                    invalidInstruction=0;
+                    instructionFiniched=1;
+                }
+                else
+                {
+                    instructionFiniched=1;
+                }
+            }
+            //JIZ
+            if(strcmp(list->token,"jiz")==0 && instructionFiniched==0)
+            {
+                list=list->next;
+                // jiz a,
+                if(strcmp(list->token,"a")==0 && instructionFiniched==0)
+                {
+                    list=list->next;
+                    // jiz a, addr
+                    if((list->type==4||list->type==1) && instructionFiniched==0)
+                    {
+                        if(list->type==4) // is a number
+                        {
+                            tmpAddr=extractNumber(list->token);
+                        }
+                        else // type 1
+                        {
+                            tmpAddr=list->addr;
+                        }
+                        PROM[addr]=0x10; // jiz a, addr
+                        addr++;
+                        PROM[addr]=tmpAddr;
+                        addr++;
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                    else
+                    {
+                        instructionFiniched=1;
+                    }
+                }
+            }
+            //JIE
+            if(strcmp(list->token,"jie")==0 && instructionFiniched==0)
+            {
+                list=list->next;
+                // jie a,
+                if(strcmp(list->token,"a")==0 && instructionFiniched==0)
+                {
+                    list=list->next;
+                    // jie a, b,
+                    if(strcmp(list->token,"b")==0 && instructionFiniched==0)
+                    {
+                        list=list->next;
+                        // jie a, b, addr
+                        if(list->type==4||list->type==1)
+                        {
+                            if(list->type==4) // is a number
+                            {
+                                tmpAddr=extractNumber(list->token);
+                            }
+                            else // type 1
+                            {
+                                tmpAddr=list->addr;
+                            }
+                            PROM[addr]=0x11; // jie a, b, addr
+                            addr++;
+                            PROM[addr]=tmpAddr;
+                            addr++;
+                            invalidInstruction=0;
+                            instructionFiniched=1;
+                        }
+                        else
+                        {
+                            instructionFiniched=1;
+                        }
+                    }
+                }
+            }
+            //JIG
+            if(strcmp(list->token,"jig")==0 && instructionFiniched==0)
+            {
+                list=list->next;
+                // jig a,
+                if(strcmp(list->token,"a")==0 && instructionFiniched==0)
+                {
+                    list=list->next;
+                    // jig a, b,
+                    if(strcmp(list->token,"b")==0 && instructionFiniched==0)
+                    {
+                        list=list->next;
+                        // jig a, b, addr
+                        if(list->type==4||list->type==1)
+                        {
+                            if(list->type==4) // is a number
+                            {
+                                tmpAddr=extractNumber(list->token);
+                            }
+                            else // type 1
+                            {
+                                tmpAddr=list->addr;
+                            }
+                            PROM[addr]=0x12; // jig a, b, addr
+                            addr++;
+                            PROM[addr]=tmpAddr;
+                            addr++;
+                            invalidInstruction=0;
+                            instructionFiniched=1;
+                        }
+                        else
+                        {
+                            instructionFiniched=1;
+                        }
+                    }
+                }
+            }
+            //JIS
+            if(strcmp(list->token,"jis")==0 && instructionFiniched==0)
+            {
+                list=list->next;
+                // jis a,
+                if(strcmp(list->token,"a")==0 && instructionFiniched==0)
+                {
+                    list=list->next;
+                    // jis a, b,
+                    if(strcmp(list->token,"b")==0 && instructionFiniched==0)
+                    {
+                        list=list->next;
+                        // jis a, b, addr
+                        if(list->type==4||list->type==1)
+                        {
+                            if(list->type==4) // is a number
+                            {
+                                tmpAddr=extractNumber(list->token);
+                            }
+                            else // type 1
+                            {
+                                tmpAddr=list->addr;
+                            }
+                            PROM[addr]=0x13; // jis a, b, addr
+                            addr++;
+                            PROM[addr]=tmpAddr;
+                            addr++;
+                            invalidInstruction=0;
+                            instructionFiniched=1;
+                        }
+                        else
+                        {
+                            instructionFiniched=1;
+                        }
+                    }
+                }
+            }
+            //JIN
+            if(strcmp(list->token,"jin")==0 && instructionFiniched==0)
+            {
+                list=list->next;
+                // jin a,
+                if(strcmp(list->token,"a")==0 && instructionFiniched==0)
+                {
+                    list=list->next;
+                    // jin a, addr
+                    if((list->type==4||list->type==1) && instructionFiniched==0)
+                    {
+                        if(list->type==4) // is a number
+                        {
+                            tmpAddr=extractNumber(list->token);
+                        }
+                        else // type 1
+                        {
+                            tmpAddr=list->addr;
+                        }
+                        PROM[addr]=0x14; // jin a, addr
+                        addr++;
+                        PROM[addr]=tmpAddr;
+                        addr++;
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                    else
+                    {
+                        instructionFiniched=1;
+                    }
+                }
+            }
+            //JIC
+            if(strcmp(list->token,"jic")==0 && instructionFiniched==0)
+            {
+                list=list->next;
+                // jic a, addr
+                if(list->type==4||list->type==1)
+                {
+                    if(list->type==4) // is a number
+                    {
+                        tmpAddr=extractNumber(list->token);
+                    }
+                    else // type 1
+                    {
+                        tmpAddr=list->addr;
+                    }
+                    PROM[addr]=0x15; // jic addr
+                    addr++;
+                    PROM[addr]=tmpAddr;
+                    addr++;
+                    invalidInstruction=0;
+                    instructionFiniched=1;
+                }
+                else
+                {
+                    instructionFiniched=1;
+                }
+            }
+            //SET
+            if(strcmp(list->token,"set")==0 && instructionFiniched==0)
+            {
+                list=list->next;
+                // set c
+                if(strcmp(list->token,"c")==0 && instructionFiniched==0) // set c
+                {
+                    PROM[addr]=0x16; // set c
+                    addr++;
+                    invalidInstruction=0;
+                    instructionFiniched=1;
+                }
+                else
+                {
+                    instructionFiniched=1;
+                }
+            }
+            //CLR
+            if(strcmp(list->token,"clr")==0 && instructionFiniched==0)
+            {
+                list=list->next;
+                // clr c
+                if(strcmp(list->token,"c")==0 && instructionFiniched==0)
+                {
+                    PROM[addr]=0x17; // clr c
+                    addr++;
+                    invalidInstruction=0;
+                    instructionFiniched=1;
+                }
+                else
+                {
+                    instructionFiniched=1;
+                }
+            }
+            //NOT
+            if(strcmp(list->token,"not")==0 && instructionFiniched==0)
+            {
+                list=list->next;
+                // not a
+                if(strcmp(list->token,"a")==0 && instructionFiniched==0)
+                {
+                    PROM[addr]=0x18; // nor a
+                    addr++;
+                    invalidInstruction=0;
+                    instructionFiniched=1;
+                }
+                else
+                {
+                    instructionFiniched=1;
+                }
+            }
+            //OR
+            if(strcmp(list->token,"or")==0 && instructionFiniched==0)
+            {
+                list=list->next;
+                // or a,
+                if(strcmp(list->token,"a")==0 && instructionFiniched==0)
+                {
+                    list=list->next;
+                    // or a, b
+                    if(strcmp(list->token,"b")==0 && instructionFiniched==0)
+                    {
+                        PROM[addr]=0x19; // or a, b
+                        addr++;
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                    else
+                    {
+                        instructionFiniched=1;
+                    }
+                }
+            }
+            //AND
+            if(strcmp(list->token,"and")==0 && instructionFiniched==0)
+            {
+                list=list->next;
+                // and a,
+                if(strcmp(list->token,"a")==0 && instructionFiniched==0)
+                {
+                    list=list->next;
+                    // and a, b
+                    if(strcmp(list->token,"b")==0)
+                    {
+                        PROM[addr]=0x1A; // and a, b
+                        addr++;
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                    else
+                    {
+                        instructionFiniched=1;
+                    }
+                }
+            }
+            //XOR
+            if(strcmp(list->token,"xor")==0 && instructionFiniched==0)
+            {
+                list=list->next;
+                // xor a,
+                if(strcmp(list->token,"a")==0 && instructionFiniched==0)
+                {
+                    list=list->next;
+                    // xor a, b
+                    if(strcmp(list->token,"b")==0)
+                    {
+                        PROM[addr]=0x1B; // xor a, b
+                        addr++;
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                    else
+                    {
+                        instructionFiniched=1;
+                    }
+                }
+            }
+            //ADD
+            if(strcmp(list->token,"add")==0 && instructionFiniched==0)
+            {
+                list=list->next;
+                // add a,
+                if(strcmp(list->token,"a")==0 && instructionFiniched==0)
+                {
+                    list=list->next;
+                    // add a, b
+                    if(strcmp(list->token,"b")==0)
+                    {
+                        PROM[addr]=0x1C; // add a, b
+                        addr++;
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                    else
+                    {
+                        instructionFiniched=1;
+                    }
+                }
+            }
+            //SUB
+            if(strcmp(list->token,"sub")==0 && instructionFiniched==0)
+            {
+                list=list->next;
+                // sub a,
+                if(strcmp(list->token,"a")==0 && instructionFiniched==0)
+                {
+                    list=list->next;
+                    // sub a, b
+                    if(strcmp(list->token,"b")==0)
+                    {
+                        PROM[addr]=0x1D; // sub a, b
+                        addr++;
+                        invalidInstruction=0;
+                        instructionFiniched=1;
+                    }
+                    else
+                    {
+                        instructionFiniched=1;
+                    }
+                }
+            }
+            //LSL
+            if(strcmp(list->token,"lsl")==0 && instructionFiniched==0)
+            {
+                list=list->next;
+                // lsl a
+                if(strcmp(list->token,"a")==0 && instructionFiniched==0)
+                {
+                    PROM[addr]=0x1E; // lsl a
+                    addr++;
+                    invalidInstruction=0;
+                    instructionFiniched=1;
+                }
+                else
+                {
+                    instructionFiniched=1;
+                }
+            }
+            //LSR
+            if(strcmp(list->token,"lsr")==0 && instructionFiniched==0)
+            {
+                list=list->next;
+                // lsr a
+                if(strcmp(list->token,"a")==0 && instructionFiniched==0)
+                {
+                    PROM[addr]=0x1F; // lsr a
+                    addr++;
+                    invalidInstruction=0;
+                    instructionFiniched=1;
+                }
+                else
+                {
+                    instructionFiniched=1;
+                }
+            }
+            if(invalidInstruction==1)
+            {
+                printf("[ERROR Line %d] Invalid instruction near to (%s)\n",list->lineNumber,list->token);
+                ret=1;
+            }
+        }
+        list=list->next;
+    }
+    printf("PROM = %d bytes",addr);
+    return(ret);
+}
+
+void saveOutFileHex(FILE* arqOut)
+{
+    fprintf(arqOut,"v2.0 raw\n");
+    for(int i=0; i<addr; i++)
+    {
+        fprintf(arqOut,"%X\n",PROM[i]); // val
+    }
+}
+
 int main(int argc, char *argv[])
 {
     int error=0;
@@ -1501,18 +2364,22 @@ int main(int argc, char *argv[])
 
     error+=extractTokens(&tokens, arqIn);
     error+=analizeTokens(&tokens);
-    error+=extractConstants(tokens);
-    error+=setConstants(tokens);
+    error+=extractDefines(tokens);
+    error+=setDefines(tokens);
     error+=extractDataAddr(tokens);
     error+=setDataAddr(tokens);
     error+=extract2BytsInstruction(tokens);
     error+=extractLabels(tokens);
     error+=setLabels(tokens);
-    //print(tokens); // for tests only
+    error+=extractConst(tokens);
+    error+=updateConst(tokens);
+    error+=setConst(tokens);
+    print(tokens); // for tests only
     error+=errorCheck(tokens);
-    error+=compile(tokens, arqOut);
+    error+=compile32i(tokens);
     if(error==0)
     {
+        saveOutFileHex(arqOut);
         printf("\nCompiled successfully!\n\n");
     }
     else
